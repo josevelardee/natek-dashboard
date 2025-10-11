@@ -51,7 +51,7 @@ export default function MapView({ stations, onSelect, sidebarOpen }: MapViewProp
     map.current.on("load", () => {
       map.current!.addSource("rios-quebradas", {
         type: "geojson",
-        data: "/rios-quebradas.geojson", // Archivo en public/
+        data: "${import.meta.env.BASE_URL}rios-quebradas.geojson", // Archivo en public/
       });
 
       map.current!.addLayer({
@@ -85,7 +85,7 @@ export default function MapView({ stations, onSelect, sidebarOpen }: MapViewProp
 // Cargar capa de lagos y lagunas desde GeoJSON
 map.current!.addSource("lagos-lagunas", {
   type: "geojson",
-  data: "/lagos-lagunas.geojson", // Archivo ubicado en /public
+  data: "${import.meta.env.BASE_URL}lagos-lagunas.geojson", // Archivo ubicado en /public
 });
 
 map.current!.addLayer({

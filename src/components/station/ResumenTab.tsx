@@ -49,7 +49,7 @@ const mockStation: StationData = {
     { id: 1, message: "Aumento inusual del caudal", date: "2025-10-08", severity: "high" },
     { id: 2, message: "Nivel de agua cercano al umbral", date: "2025-10-05", severity: "medium" },
   ],
-  lastVideoUrl: "/video.mp4",
+  lastVideoUrl: "${import.meta.env.BASE_URL}video.mp4",
   lastUpdateMeteorological: "2025-10-10T14:32:00",
   lastUpdateHydrological: "2025-10-10T14:35:00",
 };

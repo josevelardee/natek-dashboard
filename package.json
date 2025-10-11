@@ -1,6 +1,7 @@
 {
   "name": "natek-dashboard",
   "private": true,
+  "homepage": "https://josevelardee.github.io/natek-dashboard",
   "version": "0.0.0",
   "type": "module",
   "scripts": {
