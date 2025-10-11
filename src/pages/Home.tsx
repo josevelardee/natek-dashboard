@@ -1,6 +1,4 @@
-"use client";
 
-import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   MapPin,
@@ -99,8 +97,6 @@ function AiSummaryCard() {
 }
 
 export default function Home() {
-  const [selectedStation, setSelectedStation] = useState<Station | null>(null);
-
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       {/* Contenedor scrolleable */}
@@ -129,7 +125,7 @@ export default function Home() {
               </CardTitle>
             </CardHeader>
             <CardContent className="flex-1 p-0 rounded-t-none overflow-hidden">
-              <MapViewML stations={mockStations} onSelect={(st) => setSelectedStation(st)} />
+              <MapViewML stations={mockStations}  />
             </CardContent>
           </Card>
 
