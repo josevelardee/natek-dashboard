@@ -1,3 +1,5 @@
+import type { Station } from "../types";
+
 export const stations: Station[] = [
   {
     id: "1",
