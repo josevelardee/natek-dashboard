@@ -1,9 +1,8 @@
-// components/MapViewML.tsx
 import { useEffect, useRef } from "react";
-import type { Station } from "../types"; // ya tiene owner
+import type { Station } from "../types";
 import maplibregl from "maplibre-gl";
+import * as turf from "@turf/turf";
 import "maplibre-gl/dist/maplibre-gl.css";
-
 
 interface MapViewProps {
   stations: Station[];
@@ -17,192 +16,255 @@ export default function MapView({ stations, onSelect, sidebarOpen }: MapViewProp
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
 
+  /** === Constantes de estilo === */
+  const OPACITY = {
+    cuencaNormal: 0.1,
+    cuencaHover: 0.3,
+    cuencaSelected: 0.5,
+    rioNormal: 1,
+    rioAtenuado: 0.2,
+    lagoNormal: 1,
+    lagoAtenuado: 0.1,
+  };
+
+  /** === Inicializa mapa === */
   useEffect(() => {
     if (map.current) return;
 
-    // Inicializa el mapa
     map.current = new maplibregl.Map({
       container: mapContainer.current!,
       style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-      center: [-76.5, -11.85], // Lima
-      zoom: 8,
+      center: [-76.5, -11.85],
+      zoom: 10,
     });
 
-    // Controles de zoom y rotación
-    map.current.addControl(
-      new maplibregl.NavigationControl({ visualizePitch: true }),
-      "top-left"
-    );
+    map.current.addControl(new maplibregl.NavigationControl(), "top-left");
 
-    // Tooltip para ríos/quebradas
-    tooltipRef.current = document.createElement("div");
-    tooltipRef.current.style.position = "absolute";
-    tooltipRef.current.style.background = "white";
-    tooltipRef.current.style.padding = "2px 6px";
-    tooltipRef.current.style.fontSize = "12px";
-    tooltipRef.current.style.borderRadius = "4px";
-    tooltipRef.current.style.boxShadow = "0 1px 4px rgba(0,0,0,0.3)";
-    tooltipRef.current.style.pointerEvents = "none";
-    tooltipRef.current.style.opacity = "0";
-    tooltipRef.current.style.transition = "opacity 0.2s";
-    mapContainer.current!.appendChild(tooltipRef.current);
+    /** === Tooltip === */
+    tooltipRef.current = Object.assign(document.createElement("div"), {
+      style: `
+        position: absolute;
+        background: white;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.2s;
+      `,
+    } as any);
+    mapContainer.current!.appendChild(tooltipRef.current!);
 
-    // Cargar capa de ríos y quebradas desde GeoJSON
+    /** === Carga de capas === */
     map.current.on("load", () => {
-      map.current!.addSource("rios-quebradas", {
-        type: "geojson",
-        data: "${import.meta.env.BASE_URL}rios-quebradas.geojson", // Archivo en public/
+      const addGeoLayer = (id: string, data: string, layers: maplibregl.LayerSpecification[]) => {
+        map.current!.addSource(id, { type: "geojson", data });
+        layers.forEach((layer) => map.current!.addLayer(layer));
+      };
+
+      // --- Límites departamentales ---
+      addGeoLayer("lim-departamental", `${import.meta.env.BASE_URL}lim-departamental.geojson`, [
+        {
+          id: "lim-departamental-line",
+          type: "line",
+          source: "lim-departamental",
+          paint: { "line-color": "#a6a6a6", "line-width": 1.2 },
+        },
+      ]);
+
+      // --- Cuencas ---
+      addGeoLayer("cuencas", `${import.meta.env.BASE_URL}cuencas.geojson`, [
+        {
+          id: "cuencas-fill",
+          type: "fill",
+          source: "cuencas",
+          paint: { "fill-color": "#00b7ff", "fill-opacity": OPACITY.cuencaNormal },
+        },
+        {
+          id: "cuencas-line",
+          type: "line",
+          source: "cuencas",
+          paint: { "line-color": "#00b7ff", "line-width": 1.2 },
+        },
+      ]);
+
+      // --- Lagos y lagunas ---
+      addGeoLayer("lagos-lagunas", `${import.meta.env.BASE_URL}lagos-lagunas.geojson`, [
+        {
+          id: "lagos-lagunas-fill",
+          type: "fill",
+          source: "lagos-lagunas",
+          paint: { "fill-color": "#0080ff", "fill-opacity": OPACITY.lagoNormal },
+        },
+        {
+          id: "lagos-lagunas-line",
+          type: "line",
+          source: "lagos-lagunas",
+          paint: { "line-color": "#0288D1", "line-width": 1.2, "line-opacity": OPACITY.lagoNormal },
+        },
+      ]);
+
+      // --- Ríos y quebradas ---
+      addGeoLayer("rios-quebradas", `${import.meta.env.BASE_URL}rios-quebradas.geojson`, [
+        {
+          id: "rios-quebradas-line",
+          type: "line",
+          source: "rios-quebradas",
+          paint: { "line-color": "#0080ff", "line-width": 2.2, "line-opacity": OPACITY.rioNormal },
+        },
+      ]);
+
+      /** === Interacción === */
+      let hoveredCuencaId: string | null = null;
+      let selectedCuencaId: string | null = null;
+
+      // --- Tooltip ---
+      const showTooltip = (text: string, x: number, y: number) => {
+        tooltipRef.current!.innerText = text;
+        Object.assign(tooltipRef.current!.style, {
+          opacity: "1",
+          left: `${x + 10}px`,
+          top: `${y + 10}px`,
+        });
+      };
+      const hideTooltip = () => (tooltipRef.current!.style.opacity = "0");
+
+      const addTooltipEvent = (layer: string, prop: string) => {
+        map.current!.on("mousemove", layer, (e) => {
+          if (!e.features?.length) return;
+          const name = e.features[0].properties?.[prop] || "Sin nombre";
+          showTooltip(name, e.point.x, e.point.y);
+          map.current!.getCanvas().style.cursor = "pointer";
+        });
+        map.current!.on("mouseleave", layer, () => {
+          hideTooltip();
+          map.current!.getCanvas().style.cursor = "";
+        });
+      };
+
+      addTooltipEvent("rios-quebradas-line", "TEXTO_MAP");
+      addTooltipEvent("lagos-lagunas-fill", "NOMBRECUER");
+
+      /** === Hover cuencas === */
+      map.current!.on("mousemove", "cuencas-fill", (e) => {
+        if (!e.features?.length) return;
+        const id = e.features[0].properties?.CODIGO;
+        if (hoveredCuencaId === id) return;
+        hoveredCuencaId = id;
+
+        map.current!.setPaintProperty("cuencas-fill", "fill-opacity", [
+          "case",
+          ["==", ["get", "CODIGO"], selectedCuencaId],
+          OPACITY.cuencaSelected,
+          ["==", ["get", "CODIGO"], id],
+          OPACITY.cuencaHover,
+          OPACITY.cuencaNormal,
+        ]);
       });
 
-      map.current!.addLayer({
-        id: "rios-quebradas-line",
-        type: "line",
-        source: "rios-quebradas",
-        layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-color": "#1E90FF", "line-width": 3 },
+      map.current!.on("mouseleave", "cuencas-fill", () => {
+        hoveredCuencaId = null;
+        map.current!.setPaintProperty("cuencas-fill", "fill-opacity", [
+          "case",
+          ["==", ["get", "CODIGO"], selectedCuencaId],
+          OPACITY.cuencaSelected,
+          OPACITY.cuencaNormal,
+        ]);
       });
 
-      // Hover: mostrar tooltip y cambiar cursor
-      map.current!.on("mousemove", "rios-quebradas-line", (e) => {
-        if (!e.features || !e.features.length) return;
+      /** === Click cuencas === */
+      map.current!.on("click", "cuencas-fill", (e) => {
+        if (!e.features?.length) return;
         const feature = e.features[0];
-        const name = feature.properties?.TEXTO_MAP || "Sin nombre";
+        selectedCuencaId = feature.properties?.CODIGO;
 
-        tooltipRef.current!.innerText = name;
-        tooltipRef.current!.style.opacity = "1";
-        tooltipRef.current!.style.left = e.point.x + 10 + "px";
-        tooltipRef.current!.style.top = e.point.y + 10 + "px";
+        // Atenuar otras capas según selección
+        map.current!.setPaintProperty("rios-quebradas-line", "line-opacity", [
+          "case",
+          ["==", ["get", "CODIGO_UH"], selectedCuencaId],
+          OPACITY.rioNormal,
+          OPACITY.rioAtenuado,
+        ]);
+        map.current!.setPaintProperty("lagos-lagunas-fill", "fill-opacity", [
+          "case",
+          ["==", ["get", "CODIGOUH"], selectedCuencaId],
+          OPACITY.lagoNormal,
+          OPACITY.lagoAtenuado,
+        ]);
+        map.current!.setPaintProperty("lagos-lagunas-line", "line-opacity", [
+          "case",
+          ["==", ["get", "CODIGOUH"], selectedCuencaId],
+          OPACITY.lagoNormal,
+          OPACITY.lagoAtenuado,
+        ]);
 
-        map.current!.getCanvas().style.cursor = "pointer";
+        // Actualiza opacidad cuencas
+        map.current!.setPaintProperty("cuencas-fill", "fill-opacity", [
+          "case",
+          ["==", ["get", "CODIGO"], selectedCuencaId],
+          OPACITY.cuencaSelected,
+          OPACITY.cuencaNormal,
+        ]);
+
+        // Centra en cuenca seleccionada
+        const bbox = turf.bbox(feature);
+        map.current!.fitBounds(
+          [bbox[0], bbox[1], bbox[2], bbox[3]],
+          { padding: 50, duration: 1000 }
+        );
       });
 
-      map.current!.on("mouseleave", "rios-quebradas-line", () => {
-        tooltipRef.current!.style.opacity = "0";
-        map.current!.getCanvas().style.cursor = "";
+      /** === Click fuera: limpia selección === */
+      map.current!.on("click", (e) => {
+        const features = map.current!.queryRenderedFeatures(e.point, { layers: ["cuencas-fill"] });
+        if (features.length) return;
+
+        selectedCuencaId = null;
+        map.current!.setPaintProperty("rios-quebradas-line", "line-opacity", OPACITY.rioNormal);
+        map.current!.setPaintProperty("lagos-lagunas-fill", "fill-opacity", OPACITY.lagoNormal);
+        map.current!.setPaintProperty("lagos-lagunas-line", "line-opacity", OPACITY.lagoNormal);
+        map.current!.setPaintProperty("cuencas-fill", "fill-opacity", OPACITY.cuencaNormal);
       });
-
-
-// Cargar capa de lagos y lagunas desde GeoJSON
-map.current!.addSource("lagos-lagunas", {
-  type: "geojson",
-  data: "${import.meta.env.BASE_URL}lagos-lagunas.geojson", // Archivo ubicado en /public
-});
-
-map.current!.addLayer({
-  id: "lagos-lagunas-fill",
-  type: "fill",
-  source: "lagos-lagunas",
-  layout: {},
-  paint: {
-    "fill-color": "#4FC3F7", // celeste suave
-    "fill-opacity": 0.5,
-  },
-});
-
-map.current!.addLayer({
-  id: "lagos-lagunas-outline",
-  type: "line",
-  source: "lagos-lagunas",
-  layout: {},
-  paint: {
-    "line-color": "#0288D1", // azul más intenso para borde
-    "line-width": 1.5,
-  },
-});
-
-// Cargar capa de limites departamentales desde GeoJSON
-
-map.current!.addSource("lim-departamental", {
-  type: "geojson",
-  data: "/lim-departamental.geojson", // Archivo ubicado en public/
-});
-
-map.current!.addLayer({
-  id: "lim-departamental-line",
-  type: "line",
-  source: "lim-departamental",
-  layout: { "line-join": "round", "line-cap": "round" },
-  paint: {
-    "line-color": "#a6a6a6ff", // color naranja para diferenciar
-    "line-width": 1.5,
-  },
-});
-
-// Tooltip para lagos/lagunas
-map.current!.on("mousemove", "lagos-lagunas-fill", (e) => {
-  if (!e.features || !e.features.length) return;
-  const feature = e.features[0];
-  const name = feature.properties?.NOMBRECUER || "Lago/Laguna sin nombre";
-
-  tooltipRef.current!.innerText = name;
-  tooltipRef.current!.style.opacity = "1";
-  tooltipRef.current!.style.left = e.point.x + 10 + "px";
-  tooltipRef.current!.style.top = e.point.y + 10 + "px";
-  map.current!.getCanvas().style.cursor = "pointer";
-});
-
-map.current!.on("mouseleave", "lagos-lagunas-fill", () => {
-  tooltipRef.current!.style.opacity = "0";
-  map.current!.getCanvas().style.cursor = "";
-});
-
-
     });
   }, []);
 
-  // Agregar marcadores
+  /** === Marcadores de estaciones === */
   useEffect(() => {
     if (!map.current) return;
-
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
 
     stations.forEach((st) => {
-      const markerEl = document.createElement("div");
-      markerEl.className = "group relative flex flex-col items-center cursor-pointer";
+      const el = document.createElement("div");
+      el.className = "group relative flex flex-col items-center cursor-pointer";
 
-      const pulse = document.createElement("div");
-      const pin = document.createElement("div");
+      const color = st.owner === "Natek" ? "blue" : "gray";
+      const pulse = `<div class="absolute w-5 h-5 bg-${color}-400 opacity-40 rounded-full animate-ping"></div>`;
+      const pin = `<div class="w-5 h-5 bg-${color}-600 border-2 border-white rounded-full shadow-lg"></div>`;
+      const label = `<div class="absolute -top-7 bg-white text-gray-800 text-xs font-medium px-2 py-1 rounded-md shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap">${st.name}</div>`;
+      el.innerHTML = pulse + pin + label;
 
-      // Color según owner
-      if (st.owner === "Natek") {
-        pulse.className = "absolute w-5 h-5 bg-blue-400 opacity-40 rounded-full animate-ping ";
-        pin.className = "w-5 h-5 bg-blue-600 border-2 border-white rounded-full shadow-lg";
-      } else {
-        pulse.className = "absolute w-5 h-5 bg-gray-400 opacity-40 rounded-full animate-ping";
-        pin.className = "w-5 h-5 bg-gray-600 border-2 border-white rounded-full shadow-lg";
-      }
-
-      const label = document.createElement("div");
-      label.textContent = st.name;
-      label.className =
-        "absolute -top-7 bg-white text-gray-800 text-xs font-medium px-2 py-1 rounded-md shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap";
-
-      markerEl.appendChild(pulse);
-      markerEl.appendChild(pin);
-      markerEl.appendChild(label);
-
-      const marker = new maplibregl.Marker({ element: markerEl, anchor: "bottom", offset: [0, -5] })
+      const marker = new maplibregl.Marker({ element: el, anchor: "bottom" })
         .setLngLat([st.lon, st.lat])
         .addTo(map.current!);
 
-      markerEl.addEventListener("click", (e) => {
+      el.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (onSelect) onSelect(st);
+        onSelect?.(st);
       });
 
       markersRef.current.push(marker);
     });
   }, [stations, onSelect]);
 
-  // Resize por sidebar
+  /** === Ajuste al redimensionar === */
   useEffect(() => {
     if (!map.current) return;
     const timeout = setTimeout(() => map.current?.resize(), 300);
     return () => clearTimeout(timeout);
   }, [sidebarOpen]);
 
-  // Resize ventana
   useEffect(() => {
     const handleResize = () => map.current?.resize();
     window.addEventListener("resize", handleResize);

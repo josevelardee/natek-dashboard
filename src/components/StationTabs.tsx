@@ -33,7 +33,6 @@ export default function StationTabs({ station }: StationTabsProps) {
       {/* Header con nombre de la estación */}
       <div className="px-6 py-3 border-b bg-white">
         <h3 className="text-lg font-semibold text-gray-800">{station?.name}</h3>
-        <p className="text-sm text-gray-500">ID: {station?.id}</p>
       </div>
 
       {/* Tabs */}
