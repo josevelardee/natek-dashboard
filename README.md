@@ -10,15 +10,6 @@ It combines data from Natek’s monitoring stations — **NLevel**, **NFlow**, a
 ├── backend/      # Node.js + Express + PostgreSQL API
 └── README.md
 ```
-## 🚀 Features
-
-### Frontend (React + MapLibre GL)
-- 🗺️ Interactive map powered by **MapLibre GL JS**
-- 📊 Historical charts for level, flow, rainfall, temperature, and wind
-- 🔎 Station filtering and search by type or basin
-- ⚙️ Real-time data integration with **ThingsBoard**
-- 💡 Modern responsive UI built with **TailwindCSS** and **Shadcn UI**
-
 ### 🧱 Frontend Structure
 The frontend is a React + Vite application organized using a feature-based architecture, where each feature (e.g., stations, users, map) contains its own components, services, and logic.
 This improves scalability, maintainability, and collaboration across the team.
@@ -49,6 +40,16 @@ frontend/
 ├── package.json                # Project dependencies and scripts
 └── vite.config.js              # Vite configuration and build setup
 ```
+
+## 🚀 Features
+
+### Frontend (React + MapLibre GL)
+- 🗺️ Interactive map powered by **MapLibre GL JS**
+- 📊 Historical charts for level, flow, rainfall, temperature, and wind
+- 🔎 Station filtering and search by type or basin
+- ⚙️ Real-time data integration with **ThingsBoard**
+- 💡 Modern responsive UI built with **TailwindCSS** and **Shadcn UI**
+
 
 ### Backend (Node.js + PostgreSQL)
 - 🔐 Secure authentication with **ThingsBoard API**
