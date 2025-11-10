@@ -4,8 +4,6 @@ import cors from "cors";
 import path from "path";
 import "dotenv/config";
 import { fileURLToPath } from "url";
-//import senamhiRoutes from "./src/routes/senamhi.routes.js";
-//import thingsboardRoutes from "./src/routes/thingsboard.routes.js";
 import stationsRoutes from "./src/routes/stations.routes.js";
 import authRoutes from "./src/routes/auth.routes.js";
 
@@ -19,7 +17,7 @@ const PORT = process.env.PORT;
 app.use(cors());
 app.use(express.json());
 
-// 🔹 Rutas API
+// 🔹 API Routes
 app.use("/api/stations", stationsRoutes);
 app.use("/api/auth", authRoutes);
 
